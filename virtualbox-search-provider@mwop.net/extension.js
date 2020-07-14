@@ -28,7 +28,7 @@ const Lang = imports.lang;
 const IconGrid = imports.ui.iconGrid;
 const GLib = imports.gi.GLib;
 
-const ExtensionUUID = "virtualbox-search-provider@busaster.gmail.com";
+const ExtensionUUID = "virtualbox-search-provider@mwop.net";
 
 let provider = null;
 
@@ -36,11 +36,17 @@ const VirtualBoxIconBin = new Lang.Class({
     Name: 'VirtualBoxIconBin',
 
     _init: function(name) {
-        this.actor = new St.Bin({ reactive: true,
-                                  track_hover: true });
-        this.icon = new IconGrid.BaseIcon(name,
-                                          { showLabel: true,
-                                            createIcon: Lang.bind(this, this.createIcon), } );
+        this.actor = new St.Bin({
+            reactive: true,
+            track_hover: true
+        });
+        this.icon = new IconGrid.BaseIcon(
+            name,
+            {
+                showLabel: true,
+                createIcon: Lang.bind(this, this.createIcon)
+            }
+        );
 
         this.actor.child = this.icon.actor;
         this.actor.label_actor = this.icon.label;
@@ -48,13 +54,14 @@ const VirtualBoxIconBin = new Lang.Class({
 
     createIcon: function (size) {
         let box = new Clutter.Box();
-        let icon = new St.Icon({ icon_name: 'virtualbox',
-                                 icon_size: size });
+        let icon = new St.Icon({
+            icon_name: 'virtualbox',
+            icon_size: size
+        });
         box.add_child(icon);
         return box;
     }
 });
-
 
 const VBoxMachinesSearchProvider = new Lang.Class({
     Name: 'VBoxMachinesSearchProvider',
@@ -73,9 +80,10 @@ const VBoxMachinesSearchProvider = new Lang.Class({
     },
 
     getResultMeta: function (elem) {
-       return { id: elem.id,
-                 name: elem.name
-               };
+        return {
+            id: elem.id,
+            name: elem.name
+        };
     },
     
     _getResultSet: function (results, terms) { 
@@ -87,51 +95,49 @@ const VBoxMachinesSearchProvider = new Lang.Class({
 		   Main.notifyError("VirtualBox machines launcher : " + err.message);		
 			return;
 		}
+
 		log('Terms>'+terms);
+
 		var mainRegExp = new RegExp('\"(.*' + terms + '.*)"\ *\{.*\}','mi');
 		var singleRegExp = new RegExp('\{.*\}','mi');
 		var matches = null;
 		results=new Array();
-		//log('vms>'+vms);
+
+		// log('vms>'+vms);
 		// multiple matches are not handled by RegEx so I remove the matched value from the orignal string and 
-      // loop until mathse is not null		
+        // loop until matches is not null		
 		do {
-		 matches = mainRegExp.exec(vms);		 
-       if (matches!=null) {
-         //log('partialM> '+matches[0]); 		          
-		   vms=vms.substring(vms.indexOf(matches[0])+matches[0].length);
-		   var vmid=singleRegExp.exec(matches[0]);
-		   //log('partialM> '+vmid);
-		   results.push({ id:String(vmid[0]), name:String(matches[1]) });
-		 }   
-		}		
-		while (matches!=null);
+            matches = mainRegExp.exec(vms);		 
+            if (matches!=null) {
+                //log('partialM> '+matches[0]); 		          
+                vms=vms.substring(vms.indexOf(matches[0])+matches[0].length);
+                var vmid=singleRegExp.exec(matches[0]);
+                //log('partialM> '+vmid);
+                results.push({ id:String(vmid[0]), name:String(matches[1]) });
+            }   
+        } while (matches!=null);
+
 		//log('finalM> '+results);
+
 		this.searchSystem.setResults(this, results);
     },
 
     getInitialResultSet: function (terms) {
-        // GNOME 3.4 needs the results returned directly whereas 3.5.1
-        // etc will ignore this and instead need pushResults() from
-        // _getResultSet() above
-        return this._getResultSet(null, terms);
+        this._getResultSet(null, terms);
     },
 
     getSubsearchResultSet: function (results, terms) {
-        // GNOME 3.4 needs the results returned directly whereas 3.5.1
-        // etc will ignore this and instead need pushResults() from
-        // _getResultSet() above
-        return this._getResultSet(results, terms);
+        this._getResultSet(results, terms);
     },
           
     createResultObject: function (metaInfo, terms) {
-       let icona=this.createIcon(metaInfo.name);
-       log('actor : '+icona.actor);
-       return { actor: icona.actor, icon: icona };
+        let icona=this.createIcon(metaInfo.name);
+        log('actor : '+icona.actor);
+        return { actor: icona.actor, icon: icona };
     },
     
     filterResults: function (providerResults, maxResults) {
-       return providerResults;
+        return providerResults;
     },    
    
     getResultMetas: function (ids, callback) {

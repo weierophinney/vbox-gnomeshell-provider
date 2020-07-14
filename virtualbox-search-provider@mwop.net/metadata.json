@@ -1,0 +1,8 @@
+{
+  "shell-version": ["3.36"], 
+  "uuid": "virtualbox-search-provider@mwop.net", 
+  "name": "VirtualBox Vm Search Provider", 
+  "description": "Search between virtualbox vm's",
+  "url": "https://github.com/weierophinney/vbox-gnomeshell-provider",
+  "version": 4.0
+}
