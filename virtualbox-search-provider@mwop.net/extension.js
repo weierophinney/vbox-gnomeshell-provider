@@ -21,21 +21,53 @@
  */
 
 const ByteArray = imports.byteArray;
-const Gio = imports.gi.Gio;
-const GLib = imports.gi.GLib;
-const Main = imports.ui.main;
-const Util = imports.misc.util;
+const Gio       = imports.gi.Gio;
+const GLib      = imports.gi.GLib;
+const Lang      = imports.lang;
+const Main      = imports.ui.main;
+const Search    = imports.ui.search;
+const St        = imports.gi.St;
+const Util      = imports.misc.util;
 
-const SearchProviderInterface = ByteArray.toString(Gio.resources_lookup_data('/org/gnome/shell/ShellSearchProvider2.xml', 0).get_data());
+const KEY_FILE_GROUP = 'Shell Search Provider';
 
-var SearchProvider = class VBoxMachinesSearchProvider {
-    constructor(application) {
-        this._app = application;
+// const SearchProviderInterface = ByteArray.toString(Gio.resources_lookup_data('/org/gnome/Shell/SearchProvider2', 0).get_data());
+const SEARCH_PROVIDER_IFACE = 'org.gnome.Shell.SearchProvider2';
+const SEARCH_PROVIDER_PATH = '/net/mwop/VBoxMachines/SearchProvider';
+const SearchProviderInterface = '<node> \
+  <interface name="org.gnome.Shell.SearchProvider2"> \
+    <method name="GetInitialResultSet"> \
+      <arg type="as" name="terms" direction="in" /> \
+      <arg type="as" name="results" direction="out" /> \
+    </method> \
+    <method name="GetSubsearchResultSet"> \
+      <arg type="as" name="previous_results" direction="in" /> \
+      <arg type="as" name="terms" direction="in" /> \
+      <arg type="as" name="results" direction="out" /> \
+    </method> \
+    <method name="GetResultMetas"> \
+      <arg type="as" name="identifiers" direction="in" /> \
+      <arg type="aa{sv}" name="metas" direction="out" /> \
+    </method> \
+    <method name="ActivateResult"> \
+      <arg type="s" name="identifier" direction="in" /> \
+      <arg type="as" name="terms" direction="in" /> \
+      <arg type="u" name="timestamp" direction="in" /> \
+    </method> \
+    <method name="LaunchSearch"> \
+      <arg type="as" name="terms" direction="in" /> \
+      <arg type="u" name="timestamp" direction="in" /> \
+    </method> \
+  </interface> \
+</node>';
+
+const ShellSearchProvider = class VBoxMachinesSearchProvider {
+    constructor() {
         this._impl = Gio.DBusExportedObject.wrapJSObject(SearchProviderInterface, this);
     }
 
-    export(connection, path) {
-        return this._impl.export(connection, path);
+    export(connection) {
+        return this._impl.export(connection, SEARCH_PROVIDER_PATH);
     }
 
     unexport(connection) {
@@ -44,7 +76,7 @@ var SearchProvider = class VBoxMachinesSearchProvider {
 
     /* Interface methods
      *
-     * - GetInitialResultSetAsync(params, invocation): start an initial search
+     * - GetInitialResultSet(params, invocation): start an initial search
      *   for results from this provider. First item in params is a set of terms
      *   to search against. Should match an array of identifiers; use
      *   `invocation.return_value()` to push them to the shell.
@@ -52,7 +84,8 @@ var SearchProvider = class VBoxMachinesSearchProvider {
      *   initial typing. "previous" is the previous set of results. Otherwise,
      *   acts like GetInitialResultSetAsync, except returns matched items
      *   directly (not async).
-     * - GetResultMetas(identifiers): return metadata (an object) for each matched result:
+     * - GetResultMetas(identifiers, invocation): return metadata (an object)
+     *   for each matched result:
      *   - id: the result id
      *   - name: the display name for the result
      *   - description: optional short description for the result
@@ -64,61 +97,73 @@ var SearchProvider = class VBoxMachinesSearchProvider {
      *   launch the application and display search results.
      */
 
-    GetInitialResultSetAsync(params, invocation) {
-        this._app.hold();
-
+    getInitialResultSet(params, callback) {
+        // log('VMBoxSearch loading initial result set');
         let terms = params[0];
         let results = this._getResultSet(null, terms);
-
-        this._app.release();
-
-        invocation.return_value(new GLib.Variant('(as)', [results]));
+        callback(results);
     }
 
-    GetSubsearchResultSet(previous, terms) {
-        this._app.hold();
-        let results = this._getResultSet(previous, terms);
-        this._app.release();
-        return results;
+    getSubsearchResultSet(previous, terms) {
+        // log('VMBoxSearch loading subsearch result set');
+        return this._getResultSet(previous, terms);
     }
     
-    GetResultMetas(ids) {
-        return ids.map(this.getResultMeta, this);
+    getResultMetas(ids, callback) {
+		// log('idsForMeta> ' + JSON.stringify(ids));
+        let metas = ids.map((element) => ({
+            id:           element.id,
+            name:         element.name + " VM",
+            description:  element.name + 'VirtualBox VM',
+            createIcon:   (size) => {
+                let icon = new Gio.ThemedIcon({ names : ['virtualbox', 'computer'] });
+                return new St.Icon({ gicon: icon, icon_size: size });
+            }
+        }));
+        callback(metas);
     }
           
-    ActivateResult(id, terms, timestamp) {
+    activateResult(id, terms, timestamp) {
         // log('id ' + id + ' terms ' + terms);
         Util.spawn([ 'vboxmanage', 'startvm', id ]);
     }
 
-    LaunchSearch(terms, timestamp) {
+    launchSearch(terms, timestamp) {
         Util.spawn([ 'virtualbox' ]);
+    }
+
+    /**
+     * Undocumented required method from gnome-shell
+     */
+    filterResults(results, max) {
+        return results.slice(0, max);
     }
     
     _getResultSet(results, terms) {
-		var vms;
+		var vms = '';
 		
 		try {
-			vms = String(GLib.spawn_command_line_sync('vboxmanage list vms')[1]);
+            var output = GLib.spawn_command_line_sync('vboxmanage list vms');
+			vms = ByteArray.toString(output[1]);
 		} catch (err) {	
             Main.notifyError("VirtualBox machines launcher: " + err.message);		
 			return;
 		}
 
-		log('Terms>' + terms);
+		// log('Terms>' + terms);
 
-		let mainRegExp   = new RegExp('\"(.*' + terms + '.*)"\ *\{.*\}', 'mi');
+		let mainRegExp   = new RegExp('\"(.*' + terms + '.*)" \{.*\}', 'mi');
 		let singleRegExp = new RegExp('\{.*\}', 'mi');
 		var matches      = null;
 		results          = new Array();
 
-		log('vms>'+vms);
+		// log('vms>' + vms);
 
         // multiple matches are not handled by RegEx so this removes the matched
         // value from the original string and loops until matches is not null		
 		do {
             matches = mainRegExp.exec(vms);		 
-            if (matches!= null) {
+            if (matches != null) {
                 // log('partialM> ' + matches[0]); 		          
                 vms = vms.substring(vms.indexOf(matches[0])+matches[0].length);
                 var vmid = singleRegExp.exec(matches[0]);
@@ -127,17 +172,29 @@ var SearchProvider = class VBoxMachinesSearchProvider {
             }   
         } while (matches!=null);
 
-		log('VMResults> '+results);
+		// log('VMResults> ' + JSON.stringify(results));
 
 		return results;
     }
+}
 
-    getResultMeta(elem) {
-        return {
-            id:           elem.id,
-            name:         elem.name,
-            description:  'VirtualBox VM',
-            icon:         (new Gio.ThemedIcon({ names : ['virtualbox', 'computer'] })).serialize()
-        };
+let searchProvider = null;
+
+function init() {}
+
+function enable() {
+    if (searchProvider) {
+        return;
     }
+
+    searchProvider = new ShellSearchProvider();
+    Main.overview.viewSelector._searchResults._registerProvider(searchProvider);
+}
+
+function disable() {
+    if (! searchProvider) {
+        return;
+    }
+    Main.overview.viewSelector._searchResults._unregisterProvider(searchProvider);
+    searchProvider = null;
 }
